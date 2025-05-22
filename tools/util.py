@@ -1,0 +1,369 @@
+#!/usr/bin/env python3
+# coding=utf-8
+
+import os
+import sys
+import shutil
+import requests
+import subprocess
+from git import Git
+
+
+COUNTRY_CODE = ""  # "China" or other
+
+
+def set_country_code():
+    global COUNTRY_CODE
+    if len(COUNTRY_CODE):
+        return COUNTRY_CODE
+
+    try:
+        response = requests.get('http://www.ip-api.com/json', timeout=5)
+        response.raise_for_status()
+
+        result = response.json()
+        country = result.get("country", "")
+        print(f"country code: {country}")
+
+        COUNTRY_CODE = country
+    except requests.exceptions.RequestException as e:
+        print(f"country code error: {e}")
+
+    return COUNTRY_CODE
+
+
+def get_country_code():
+    global COUNTRY_CODE
+    if len(COUNTRY_CODE):
+        return COUNTRY_CODE
+    return set_country_code()
+
+
+def rm_rf(file_path):
+    if os.path.isfile(file_path):
+        os.remove(file_path)
+    elif os.path.isdir(file_path):
+        shutil.rmtree(file_path)
+    return True
+
+
+def copy_file(source, target, force=True) -> bool:
+    '''
+    force: Overwrite if the target file exists
+    '''
+    if not os.path.exists(source):
+        print(f"Not found [{source}].")
+        return False
+    if not force and os.path.exists(target):
+        return True
+
+    target_dir = os.path.dirname(target)
+    if target_dir:
+        os.makedirs(target_dir, exist_ok=True)
+    shutil.copy(source, target)
+    return True
+
+
+def do_subprocess(cmds, directory=""):
+    if not cmds:
+        print("Subprocess cmds is empty.")
+        return 0
+
+    if directory:
+        if os.path.exists(directory):
+            os.chdir(directory)
+        else:
+            print(f"Subprocess not found [{directory}].")
+            return 1
+
+    print(f'''do subprocess:
+directory: {directory}
+cmds: {cmds}''')
+    ret = 1  # 0: success
+    original_dir = os.getcwd()
+    try:
+        # bufsize=1启用行缓冲
+        process = subprocess.Popen(
+            cmds,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=1,
+            universal_newlines=True
+        )
+
+        for line in iter(process.stdout.readline, ''):
+            sys.stdout.write(line)
+
+        ret = process.wait()
+
+        stderr = process.stderr.read()
+        if stderr:
+            sys.stderr.write(stderr)
+    finally:
+        os.chdir(original_dir)
+
+    print(f"do subprocess result: {ret}")
+    return ret
+
+
+def execute_continuous_commands(commands):
+    try:
+        process = subprocess.Popen(
+            ['bash'],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+            env=os.environ.copy()
+        )
+
+        output = []
+        errors = []
+
+        def read_output(stream, container):
+            for line in iter(stream.readline, ''):
+                container.append(line)
+                print(line, end='')
+            stream.close()
+
+        import threading
+        stdout_thread = threading.Thread(target=read_output,
+                                         args=(process.stdout, output))
+        stderr_thread = threading.Thread(target=read_output,
+                                         args=(process.stderr, errors))
+
+        stdout_thread.start()
+        stderr_thread.start()
+
+        for cmd in commands:
+            print(f"run: {cmd}")
+            process.stdin.write(cmd + '\n')
+            process.stdin.flush()
+
+        process.stdin.close()
+        process.wait()
+
+        stdout_thread.join()
+        stderr_thread.join()
+
+        if process.returncode != 0:
+            print(f"run error: {process.returncode}")
+            print(''.join(errors))
+            return False
+        else:
+            print("run success")
+            return True
+
+    except Exception as e:
+        print(f"Exception: {str(e)}")
+        return False
+
+
+def execute_idf_commands(root, cmd, directory):
+    idf_path = os.path.join(root, "esp-idf")
+    idf_tools_path = os.path.join(root, ".espressif")
+    os.environ["IDF_PATH"] = idf_path
+    os.environ["IDF_TOOLS_PATH"] = idf_tools_path
+    export_sh = os.path.join(idf_path, "export.sh")
+
+    commands = [
+        f". {export_sh}",
+        f"cd {directory}",
+        cmd,
+    ]
+    return execute_continuous_commands(commands)
+
+
+def need_settarget(target_file, target):
+    if not os.path.exists(target_file):
+        return True
+    with open(target_file, "r", encoding='utf-8') as f:
+        old_target = f.read().strip()
+    print(f"old_target: {old_target}")
+    if target != old_target:
+        return True
+    return False
+
+
+def record_target(target_file, target):
+    with open(target_file, "w", encoding='utf-8') as f:
+        f.write(target)
+    return True
+
+
+MIRROR_LIST = [
+    "adafruit/asf4",
+    "ARMmbed/mbed-os-cypress-capsense-button",
+    "ARMmbed/mbed-os-posix-socket",
+    "ARMmbed/mbed-os",
+    "ARMmbed/mbedtls",
+    "atgreen/libffi",
+    "ATmobica/mcuboot",
+    "bluekitchen/btstack",
+    "DaveGamble/cJSON",
+    "eclipse/tinydtls",
+    "espressif/asio",
+    "espressif/aws-iot-device-sdk-embedded-C",
+    "espressif/connectedhomeip",
+    "espressif/esp-adf",
+    "espressif/esp-adf-libs",
+    "espressif/esp-at",
+    "espressif/esp-ble-mesh-lib",
+    "espressif/esp-bootloader-plus",
+    "espressif/esp-box",
+    "espressif/esp-coex-lib",
+    "espressif/esp-cryptoauthlib",
+    "espressif/esp-dev-kits",
+    "espressif/esp-dl",
+    "espressif/esp-hosted",
+    "espressif/esp-idf",
+    "espressif/esp-idf-provisioning-ios",
+    "espressif/esp-ieee802154-lib",
+    "espressif/esp-insights",
+    "espressif/esp-iot-bridge",
+    "espressif/esp-iot-solution",
+    "espressif/esp-lwip",
+    "espressif/esp-matter",
+    "espressif/esp-mesh-lite",
+    "espressif/esp-mqtt",
+    "espressif/esp-nimble",
+    "espressif/esp-phy-lib",
+    "espressif/esp-rainmaker",
+    "espressif/esp-rainmaker-cli",
+    "espressif/esp-rainmaker-common",
+    "espressif/esp-rainmaker-ios",
+    "espressif/esp-serial-flasher",
+    "espressif/esp-sr",
+    "espressif/esp-thread-lib",
+    "espressif/esp-who",
+    "espressif/esp32-bt-lib",
+    "espressif/esp32-camera",
+    "espressif/esp32-wifi-lib",
+    "espressif/esp32c2-bt-lib",
+    "espressif/esp32c3-bt-lib",
+    "espressif/esp32c5-bt-lib",
+    "espressif/esp32c6-bt-lib",
+    "espressif/esp32h2-bt-lib",
+    "espressif/esptool",
+    "espressif/json_generator",
+    "espressif/json_parser",
+    "espressif/mbedtls",
+    "espressif/openthread",
+    "espressif/tinyusb",
+    "espressif/tlsf",
+    "FreeRTOS/FreeRTOS-Kernel",
+    "google/boringssl",
+    "google/pigweed",
+    "h2o/neverbleed",
+    "hathach/nxp_driver",
+    "hathach/tinyusb",
+    "Infineon/abstraction-rtos",
+    "Infineon/anycloud-ota",
+    "Infineon/bluetooth-freertos",
+    "Infineon/btsdk-include",
+    "Infineon/btsdk-tools",
+    "Infineon/btstack",
+    "Infineon/clib-support",
+    "Infineon/connectivity-utilities",
+    "Infineon/core-lib",
+    "Infineon/core-make",
+    "Infineon/freertos",
+    "Infineon/kv-store",
+    "Infineon/mtb-hal-cat1",
+    "Infineon/mtb-pdl-cat1",
+    "Infineon/ot-ifx-release",
+    "Infineon/OT-Matter-30739A0",
+    "Infineon/OT-Matter-TARGET_CYW930739M2EVB-01",
+    "Infineon/psoc6cm0p",
+    "Infineon/recipe-make-cat1a",
+    "Infineon/retarget-io",
+    "Infineon/secure-sockets",
+    "Infineon/serial-flash",
+    "Infineon/TARGET_CY8CKIT-062S2-43012",
+    "Infineon/whd-bsp-integration",
+    "Infineon/wifi-connection-manager",
+    "Infineon/wifi-host-driver",
+    "Infineon/wifi-mw-core",
+    "intel/tinycbor",
+    "jedisct1/libhydrogen",
+    "jedisct1/libsodium",
+    "jeremyjh/ESP32_TFT_library",
+    "kmackay/micro-ecc",
+    "leethomason/tinyxml2",
+    "libexpat/libexpat",
+    "lvgl/lvgl",
+    "lwip-tcpip/lwip",
+    "micropython/axtls",
+    "micropython/micropython",
+    "micropython/micropython-lib",
+    "micropython/mynewt-nimble",
+    "micropython/stm32lib",
+    "matter-mtk/genio-matter-lwip",
+    "matter-mtk/genio-matter-mdnsresponder",
+    "mruby/mruby",
+    "nayuki/QR-Code-generator",
+    "nanopb/nanopb",
+    "nestlabs/nlassert",
+    "nestlabs/nlfaultinjection",
+    "nestlabs/nlio",
+    "nestlabs/nlunit-test",
+    "nghttp2/nghttp2",
+    "nodejs/http-parser",
+    "obgm/libcoap",
+    "ocornut/imgui",
+    "open-source-parsers/jsoncpp",
+    "openthread/ot-br-posix",
+    "openthread/ot-nxp",
+    "openthread/ot-qorvo",
+    "openthread/openthread",
+    "openweave/cirque",
+    "pellepl/spiffs",
+    "pfalcon/berkeley-db-1.xx",
+    "project-chip/zap",
+    "protobuf-c/protobuf-c",
+    "pybind/pybind11",
+    "Qorvo/qpg-openthread",
+    "Qorvo/QMatter",
+    "raspberrypi/pico-sdk",
+    "tatsuhiro-t/neverbleed",
+    "ThrowTheSwitch/CMock",
+    "throwtheswitch/cexception",
+    "throwtheswitch/unity",
+    "ThrowTheSwitch/Unity",
+    "troglobit/editline",
+    "warmcat/libwebsockets",
+    "zserge/jsmn",
+]
+
+
+def jihu_mirro(unset=False):
+    if get_country_code() != "China":
+        return
+    g = Git()
+    try:
+        for repo in MIRROR_LIST:
+            jihu = f"https://jihulab.com/esp-mirror/{repo}"
+            if unset:
+                g.config(
+                    "--global",
+                    "--unset",
+                    f"url.{jihu}.insteadOf")
+                g.config(
+                    "--global",
+                    "--unset",
+                    f"url.{jihu}.git.insteadOf")
+            else:
+                github = f"https://github.com/{repo}"
+                g.config(
+                    "--global",
+                    f"url.{jihu}.insteadOf",
+                    f"{github}")
+                g.config(
+                    "--global",
+                    f"url.{jihu}.git.insteadOf",
+                    f"{github}")
+    except Exception as e:
+        print(f"jihu mirror warning: {e}")
+    pass
