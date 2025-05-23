@@ -4,7 +4,7 @@
 import sys
 import os
 
-from tools.util import copy_file, record_target, execute_idf_commands
+from tools.util import record_target, set_target
 from tools.prepare import platform_prepare, delete_temp_files
 
 
@@ -32,23 +32,15 @@ def need_setup(root) -> bool:
 def setup_some_files(root, chip) -> bool:
     delete_temp_files(root)
 
-    tuya_path = os.path.join(root, "tuya_open_sdk")
-    sdk_config = os.path.join(tuya_path, f"sdkconfig_{chip}")
-    sdk_config_default = os.path.join(tuya_path, "sdkconfig.defaults")
-    return copy_file(sdk_config, sdk_config_default)
-
-
-def setup(root, chip):
-    '''
-    1. Generate the sdkconfig.h file before the first build
-    use: idf.py set-target xxx
-    '''
-    cmd = f"idf.py set-target {chip}"
-    directory = os.path.join(root, "tuya_open_sdk")
-    return execute_idf_commands(root, cmd, directory)
-
 
 def main():
+    '''
+    1. 主要作用是生成sdkconfig.h，因为tuyaopen src编译需要
+    2. 生成sdkconfig.h的命令: idf.py set-target xxx
+    3. 有可能platform已经下载但是没有prpare，所以prpare一次
+    4. 这里的操作没有cmake参数，所以在build_example时需要重新解析cmake
+    5. 重新解析cmake的命令: idf.py set-target xxx
+    '''
     if len(sys.argv) < 5:
         print(f"Error: At least 4 parameters are needed {sys.argv}.")
     project_name = sys.argv[1]
@@ -74,15 +66,13 @@ chip: {chip}''')
         print("No need setup.")
         sys.exit(0)
 
-    if not setup_some_files(root, chip):
-        print("Error: setup some files.")
+    delete_temp_files(root)
+
+    if not set_target(root, chip):
+        print("Error: set-target failed.")
         sys.exit(1)
 
-    if not setup(root, chip):
-        print("Error: setup.")
-        sys.exit(1)
-
-    # When build_example.sh need set-target again
+    # When build_example.py need set-target again
     target_file = os.path.join(root, ".target")
     record_target(target_file, "need-set-target")
 
