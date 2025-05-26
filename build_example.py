@@ -62,13 +62,73 @@ def set_partitions(root, param_data):
     pass
 
 
+def merge_bin(root, chip, build_path, out_bin):
+    args_file = os.path.join(build_path, "flasher_args.json")
+    if not os.path.exists(args_file):
+        print(f"Error: Not found [{args_file}]")
+        return False
+
+    with open(args_file, 'r') as f:
+        args_data = json.load(f)
+
+    flash_files = args_data['flash_files']
+
+    cmd = f"esptool.py --chip {chip} merge_bin -o {out_bin}"
+    for addr in flash_files:
+        bin_path = flash_files[addr]
+        cmd += f" {addr} {os.path.join(build_path, bin_path)}"
+
+    print("Merging bin ...")
+    # print(merge_cmd)
+    if not execute_idf_commands(root, cmd, build_path):
+        print("Error: Build failed.")
+        return False
+    return True
+
+
+def copy_assets(build_path, output_path, app_name, app_ver):
+    '''
+if [ -f ${BULID_PATH}/srmodels/srmodels.bin ]; then
+    cp -rf ${BULID_PATH}/srmodels/srmodels.bin ${APP_BIN_DIR}/srmodels.bin
+fi
+    '''
+    os.makedirs(output_path, exist_ok=True)
+    copy_file(os.path.join(build_path, f"{app_name}_QIO_{app_ver}.bin"),
+              os.path.join(output_path, f"{app_name}_QIO_{app_ver}.bin"))
+    copy_file(os.path.join(build_path, "bootloader", "bootloader.bin"),
+              os.path.join(output_path, "bootloader.bin"))
+    copy_file(os.path.join(build_path, "partition_table",
+                           "partition-table.bin"),
+              os.path.join(output_path, "partition-table.bin"))
+    copy_file(os.path.join(build_path, "ota_data_initial.bin"),
+              os.path.join(output_path, "ota_data_initial.bin"))
+    copy_file(os.path.join(build_path, "tuya_open_sdk.bin"),
+              os.path.join(output_path, f"{app_name}.bin"))
+    copy_file(os.path.join(build_path, "tuya_open_sdk.bin"),
+              os.path.join(output_path, f"{app_name}_UA_{app_ver}.bin"))
+    copy_file(os.path.join(build_path, "tuya_open_sdk.bin"),
+              os.path.join(output_path, f"{app_name}_UG_{app_ver}.bin"))
+    copy_file(os.path.join(build_path, "tuya_open_sdk.elf"),
+              os.path.join(output_path, f"{app_name}_{app_ver}.elf"))
+    copy_file(os.path.join(build_path, "tuya_open_sdk.map"),
+              os.path.join(output_path, f"{app_name}_{app_ver}.map"))
+    srmodels_bin = os.path.join(build_path, "srmodels", "srmodels.bin")
+    if os.path.isfile(srmodels_bin):
+        copy_file(srmodels_bin,
+                  os.path.join(output_path, "srmodels.bin"))
+
+    return True
+
+
 def main():
     '''
-    1. 调用idf.py生成固件
-    2. 提前配置一些环境变量
-    3. 如果编译的项目变化，则清理现场并set-target
-    4. 如果target变化，则清理现场并set-target
-    5. 配置正确的partitions.csv
+    1. 提前配置一些环境变量
+    1. 如果编译的项目变化，则清理现场并set-target
+    1. 如果target变化，则清理现场并set-target
+    1. 配置正确的partitions.csv
+    1. 调用idf.py build生成固件
+    1. 打包生成单独固件
+    1. 拷贝产物到输出路径中
     '''
     if len(sys.argv) < 2:
         print(f"Error: At least 2 parameters are needed {sys.argv}.")
@@ -109,7 +169,17 @@ def main():
         sys.exit(1)
 
     app_version = param_data["CONFIG_PROJECT_VERSION"]
+    idf_build_path = os.path.join(root, "tuya_open_sdk", "build")
+    out_bin = os.path.join(idf_build_path, f"{app_name}_QIO_{app_version}.bin")
     print(f"Start generate {app_name}_QIO_{app_version}.bin")
+    if not merge_bin(root, chip, idf_build_path, out_bin):
+        print("Error: Merge bin.")
+        sys.exit(1)
+
+    output_path = param_data["BIN_OUTPUT_DIR"]
+    if not copy_assets(idf_build_path, output_path, app_name, app_version):
+        print("Error: copy assets.")
+        sys.exit(1)
 
     sys.exit(0)
 
