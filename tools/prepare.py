@@ -6,7 +6,7 @@ import subprocess
 
 from tools.util import (
     rm_rf, get_country_code, do_subprocess,
-    jihu_mirro
+    get_system_name, jihu_mirro
 )
 
 
@@ -77,6 +77,7 @@ def download_esp_idf():
 
     idf_path = os.environ["IDF_PATH"]
     if not os.path.exists(idf_path):
+        print("Initialing esp-idf ...")
         idf_version = "v5.4"
         cmds = [
             "git",
@@ -88,7 +89,8 @@ def download_esp_idf():
             "--depth=1",
             idf_path,
         ]
-        if do_subprocess(cmds) != 0:
+        cmd = " ".join(cmds)
+        if do_subprocess(cmd) != 0:
             jihu_mirro(unset=True)
             return False
 
@@ -99,7 +101,9 @@ def download_esp_idf():
         "--init",
         "--recursive",
     ]
-    if do_subprocess(cmds, idf_path) != 0:
+    cmd = " ".join(cmds)
+    git_cmd = f"cd {idf_path} && {cmd}"
+    if do_subprocess(git_cmd) != 0:
         jihu_mirro(unset=True)
         return False
 
@@ -115,11 +119,13 @@ def install_target(target):
         os.environ["IDF_GITHUB_ASSETS"] = "dl.espressif.com/github_assets"
 
     idf_path = os.environ["IDF_PATH"]
-    cmds = [
-        "./install.sh",
-        target,
-    ]
-    if do_subprocess(cmds, idf_path) != 0:
+    cmd = f"cd {idf_path} && "
+    if get_system_name() == "windows":
+        cmd += f".\\install.bat {target}"
+    else:
+        cmd += f"./install.sh {target}"
+
+    if do_subprocess(cmd) != 0:
         return False
 
     print(f"Install target [{target}] success.")

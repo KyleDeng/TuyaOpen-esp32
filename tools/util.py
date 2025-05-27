@@ -2,10 +2,9 @@
 # coding=utf-8
 
 import os
-import sys
+import platform
 import shutil
 import requests
-import subprocess
 from git import Git
 
 
@@ -39,6 +38,30 @@ def get_country_code():
     return set_country_code()
 
 
+# "linux", "darwin_x86", "darwin_arm64", "windows"
+SYSTEM_NAME = ""
+
+
+def set_system_name():
+    global SYSTEM_NAME
+    _env = platform.system().lower()
+    if "linux" in _env:
+        SYSTEM_NAME = "linux"
+    elif "darwin" in _env:
+        machine = "x86" if "x86" in platform.machine().lower() else "arm64"
+        SYSTEM_NAME = f"darwin_{machine}"
+    else:
+        SYSTEM_NAME = "windows"
+    return SYSTEM_NAME
+
+
+def get_system_name():
+    global SYSTEM_NAME
+    if len(SYSTEM_NAME):
+        return SYSTEM_NAME
+    return set_system_name()
+
+
 def rm_rf(file_path):
     if os.path.isfile(file_path):
         os.remove(file_path)
@@ -64,101 +87,21 @@ def copy_file(source, target, force=True) -> bool:
     return True
 
 
-def do_subprocess(cmds, directory=""):
-    if not cmds:
-        print("Subprocess cmds is empty.")
+def do_subprocess(cmd: str) -> int:
+    if not cmd:
+        print("Subprocess cmd is empty.")
         return 0
 
-    if directory:
-        if os.path.exists(directory):
-            os.chdir(directory)
-        else:
-            print(f"Subprocess not found [{directory}].")
-            return 1
+    print(f"do subprocess: {cmd}")
 
-    print(f'''do subprocess:
-directory: {directory}
-cmds: {cmds}''')
     ret = 1  # 0: success
-    original_dir = os.getcwd()
     try:
-        # bufsize=1启用行缓冲
-        process = subprocess.Popen(
-            cmds,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            bufsize=1,
-            universal_newlines=True
-        )
-
-        for line in iter(process.stdout.readline, ''):
-            sys.stdout.write(line)
-
-        ret = process.wait()
-
-        stderr = process.stderr.read()
-        if stderr:
-            sys.stderr.write(stderr)
-    finally:
-        os.chdir(original_dir)
-
-    print(f"do subprocess result: {ret}")
-    return ret
-
-
-def execute_continuous_commands(commands):
-    try:
-        process = subprocess.Popen(
-            ['bash'],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-            universal_newlines=True,
-            env=os.environ.copy()
-        )
-
-        output = []
-        errors = []
-
-        def read_output(stream, container):
-            for line in iter(stream.readline, ''):
-                container.append(line)
-                print(line, end='')
-            stream.close()
-
-        import threading
-        stdout_thread = threading.Thread(target=read_output,
-                                         args=(process.stdout, output))
-        stderr_thread = threading.Thread(target=read_output,
-                                         args=(process.stderr, errors))
-
-        stdout_thread.start()
-        stderr_thread.start()
-
-        for cmd in commands:
-            print(f"run: {cmd}")
-            process.stdin.write(cmd + '\n')
-            process.stdin.flush()
-
-        process.stdin.close()
-        process.wait()
-
-        stdout_thread.join()
-        stderr_thread.join()
-
-        if process.returncode != 0:
-            print(f"run error: {process.returncode}")
-            print(''.join(errors))
-            return False
-        else:
-            print("run success")
-            return True
-
+        ret = os.system(cmd)
     except Exception as e:
-        print(f"Exception: {str(e)}")
-        return False
+        print(f"Do subprocess error: {str(e)}")
+        print(f"do subprocess: {cmd}")
+        return 1
+    return ret
 
 
 def execute_idf_commands(root, cmd, directory):
@@ -173,7 +116,7 @@ def execute_idf_commands(root, cmd, directory):
         f"cd {directory}",
         cmd,
     ]
-    return execute_continuous_commands(commands)
+    return do_subprocess(commands)
 
 
 def set_target(root, chip):
@@ -361,6 +304,11 @@ MIRROR_LIST = [
 def jihu_mirro(unset=False):
     if get_country_code() != "China":
         return
+    if not unset:
+        print("Set jihulab mirror ...")
+    else:
+        print("Unset jihulab mirror ...")
+
     g = Git()
     try:
         for repo in MIRROR_LIST:
