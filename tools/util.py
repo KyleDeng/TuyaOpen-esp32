@@ -88,6 +88,9 @@ def copy_file(source, target, force=True) -> bool:
 
 
 def do_subprocess(cmd: str) -> int:
+    '''
+    return: 0: success, other: error
+    '''
     if not cmd:
         print("Subprocess cmd is empty.")
         return 0
@@ -104,19 +107,25 @@ def do_subprocess(cmd: str) -> int:
     return ret
 
 
-def execute_idf_commands(root, cmd, directory):
+def execute_idf_commands(root, cmd, directory) -> bool:
+    if not os.path.exists(directory):
+        print(f"Error: Directory [{directory}] does not exist.")
+        return False
     idf_path = os.path.join(root, "esp-idf")
     idf_tools_path = os.path.join(root, ".espressif")
     os.environ["IDF_PATH"] = idf_path
     os.environ["IDF_TOOLS_PATH"] = idf_tools_path
-    export_sh = os.path.join(idf_path, "export.sh")
+    if get_system_name() == "windows":
+        export_bat = os.path.join(idf_path, "export.bat")
+        command = f"{export_bat} && "
+    else:
+        export_sh = os.path.join(idf_path, "export.sh")
+        command = f". {export_sh} && "
 
-    commands = [
-        f". {export_sh}",
-        f"cd {directory}",
-        cmd,
-    ]
-    return do_subprocess(commands)
+    command += f"cd {directory} && {cmd}"
+    if 0 != do_subprocess(command):
+        return False
+    return True
 
 
 def set_target(root, chip):

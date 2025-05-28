@@ -5,12 +5,18 @@ import os
 import subprocess
 
 from tools.util import (
-    rm_rf, get_country_code, do_subprocess,
-    get_system_name, jihu_mirro
+    rm_rf, get_country_code, copy_file,
+    do_subprocess, get_system_name, jihu_mirro
 )
 
 
-def need_prepare(prepare_file, target):
+def need_prepare(root, prepare_file, target):
+    idf_path = os.path.join(root, "esp-idf")
+    idf_tools_path = os.path.join(root, ".espressif")
+    if not os.path.exists(idf_path) \
+            or not os.path.exists(idf_tools_path):
+        print("ESP-IDF path or tools path not exists, need prepare.")
+        return True
     if not os.path.exists(prepare_file):
         return True
     with open(prepare_file, "r", encoding='utf-8') as f:
@@ -112,6 +118,14 @@ def download_esp_idf():
     return True
 
 
+def copy_idf_tools_py(root):
+    source_file = os.path.join(root, "tools", "idf_tools.py")
+    idf_path = os.environ["IDF_PATH"]
+    target_file = os.path.join(idf_path, "tools", "idf_tools.py")
+    copy_file(source_file, target_file)
+    pass
+
+
 def install_target(target):
     if get_country_code() != "China":
         os.environ["IDF_GITHUB_ASSETS"] = "dl.espressif.cn/github_assets"
@@ -134,18 +148,22 @@ def install_target(target):
 
 def platform_prepare(root, target):
     prepare_file = os.path.join(root, ".prepare")
-    if not need_prepare(prepare_file, target):
+    if not need_prepare(root, prepare_file, target):
         print("No need prepare.")
         return True
     print("Need prepare.")
     delete_temp_files(root)
+
     # if not exists_idf_py():
     export_idf_path(root)
     if not download_esp_idf():
         print("Download ESP_IDF failed.")
         return False
+
+    copy_idf_tools_py(root)
     if not install_target(target):
         print(f"Install target [{target}] failed.")
         return False
+
     record_prepare(prepare_file, target)
     return True

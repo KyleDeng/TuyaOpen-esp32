@@ -73,13 +73,12 @@ def merge_bin(root, chip, build_path, out_bin):
 
     flash_files = args_data['flash_files']
 
-    cmd = f"esptool.py --chip {chip} merge_bin -o {out_bin}"
+    cmd = f"python -m esptool --chip {chip} merge_bin -o {out_bin}"
     for addr in flash_files:
         bin_path = flash_files[addr]
         cmd += f" {addr} {os.path.join(build_path, bin_path)}"
 
     print("Merging bin ...")
-    # print(merge_cmd)
     if not execute_idf_commands(root, cmd, build_path):
         print("Error: Build failed.")
         return False
@@ -87,11 +86,6 @@ def merge_bin(root, chip, build_path, out_bin):
 
 
 def copy_assets(build_path, output_path, app_name, app_ver):
-    '''
-if [ -f ${BULID_PATH}/srmodels/srmodels.bin ]; then
-    cp -rf ${BULID_PATH}/srmodels/srmodels.bin ${APP_BIN_DIR}/srmodels.bin
-fi
-    '''
     os.makedirs(output_path, exist_ok=True)
     copy_file(os.path.join(build_path, f"{app_name}_QIO_{app_ver}.bin"),
               os.path.join(output_path, f"{app_name}_QIO_{app_ver}.bin"))
